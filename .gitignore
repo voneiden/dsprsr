@@ -1,0 +1,6 @@
+.idea
+data
+venv
+*.iml
+__pycache__
+tmp
