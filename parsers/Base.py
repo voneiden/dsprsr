@@ -32,6 +32,9 @@ class BaseParser:
 
         return True
 
+    def is_valid_table_row(self, index):
+        return True
+
     def read_table(self, header_index):
         header_row = self.datasheet_json[header_index]
 
@@ -41,8 +44,12 @@ class BaseParser:
                 column_count = len(header_row['cols'])
                 row_count = 0
                 while True:
-                    row_columns = self.datasheet_json[header_index + row_count + 1]['cols']
-                    if len(row_columns) == column_count:
+                    row_index = header_index + row_count + 1
+                    row_columns = self.datasheet_json[row_index]['cols']
+                    # TODO check row_i vs row_t
+                    # TODO check bitfield
+                    # TODO check section?
+                    if len(row_columns) == column_count and self.is_valid_table_row(row_index):
                         table.append(row_columns)
                         row_count += 1
                     else:

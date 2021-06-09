@@ -29,22 +29,29 @@ class ATtiny814Parser(BaseParser):
     }
 
     register_signature = (('Name:', '*'), ('Offset:', '*'))
+    bitfield_signature = ((re.compile(r'Bit.*-.*'), '**'),)
 
     def atdf_module(self, module_name):
         if module_name == 'UPDI':
             return UPDI_INTERFACE
         return super().atdf_module(module_name)
 
+    def is_valid_table_row(self, index):
+        return not self.match_signature_definition(index, self.bitfield_signature)
+
+
     def scan_field_description(self, index):
         description = []
         section_signature = ((re_section,),)
-        bitfield_signature = ((re.compile(r'Bit.*-.*'), '**'),)
-        while not self.match_signature_definition(index, section_signature) and not self.match_signature_definition(index, bitfield_signature):
+
+        while not self.match_signature_definition(index, section_signature) and not self.match_signature_definition(index, self.bitfield_signature):
             # TODO end of page
             row = self.datasheet_json[index]
             table = self.read_table(index)
             if table:
                 description.append(markdown_table(table))
+                index += len(table) - 1
+                row = self.datasheet_json[index]
             else:
                 description.append(" ".join(row['cols']))
 
@@ -55,7 +62,7 @@ class ATtiny814Parser(BaseParser):
         #print("D)", self.datasheet_json[index])
         #print("M1)", self.match_signature_definition(index, section_signature))
         #print("M2)", self.match_signature_definition(index, bitfield_signature))
-        print("---->", " ".join(description))
+        print("---->", "\n".join(description))
 
 
 

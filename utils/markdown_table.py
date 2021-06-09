@@ -21,7 +21,7 @@ def markdown_table(table):
     header = table[0]
     rows = table[1:]
 
-    output = ['\n\n']
+    output = ['\n']
 
     cols = []
 
@@ -30,6 +30,6 @@ def markdown_table(table):
     for row in rows:
         output.append(_convert_row(row, col_widths))
 
-    output.append('\n\n')
+    output.append('\n')
     output = '\n'.join(output)
     return output
