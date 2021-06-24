@@ -31,14 +31,12 @@ class ATtiny814Parser(BaseParser):
     register_signature = (('Name:', '*'), ('Offset:', '*'))
     bitfield_signature = ((re.compile(r'Bit.*-.*'), '**'),)
 
-    def atdf_module(self, module_name):
-        if module_name == 'UPDI':
-            return UPDI_INTERFACE
-        return super().atdf_module(module_name)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.output['modules'].append(UPDI_INTERFACE)
 
     def is_valid_table_row(self, index):
         return not self.match_signature_definition(index, self.bitfield_signature)
-
 
     def scan_field_description(self, index):
         description = []
@@ -62,14 +60,15 @@ class ATtiny814Parser(BaseParser):
         #print("D)", self.datasheet_json[index])
         #print("M1)", self.match_signature_definition(index, section_signature))
         #print("M2)", self.match_signature_definition(index, bitfield_signature))
-        print("---->", "\n".join(description))
-
-
+        description = "\n".join(description)
+        print("---->", description)
+        return description
 
     def scan_field(self, index, field_name, field_mask):
-        field = None
+        field_description = None
         # TODO signature via bitmask?
         # Bits 0:3, 4:7 -->
+        print("Field mask", field_mask)
         field_mask = bin(int(field_mask, 16))[2:][::-1]
         field_low_bit = field_mask.index('1')
         field_high_bit = field_mask.rindex('1')
@@ -87,12 +86,11 @@ class ATtiny814Parser(BaseParser):
                 index += 1
         except IndexError:
             print("!!! WHOA, undocumented BITFIELD!", field_name, "using re_bit", re_bit)
-            #TODO
-            return field
+            return None
 
         print(f" - Found bitfield {field_name} at index {index}")
-        self.scan_field_description(index+1)
-        return field
+        field_description = self.scan_field_description(index+1)
+        return field_description
 
     def scan_register(self, index, register_name, atdf_bitfields):
         fields = []
@@ -110,16 +108,8 @@ class ATtiny814Parser(BaseParser):
             return fields
         print(f"* Found register {register_name} at index", index)
         for atdf_bitfield in atdf_bitfields:
-            # TODO values
-            field = {
-                'name': atdf_bitfield.get('@name'),
-                'caption': atdf_bitfield.get('@caption'),
-                'mask': atdf_bitfield.get('@mask'),
-                'rw': atdf_bitfield.get('@rw'),
-                'description': '',
-            }
-            self.scan_field(index, field['name'], field['mask'])
-        return fields
+            print("ATDFBITFIELD", atdf_bitfield, "err", atdf_bitfields)
+            atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
 
     def process(self):
         skip = 0
@@ -148,43 +138,24 @@ class ATtiny814Parser(BaseParser):
                             raise RuntimeError(f'Module name hint key yielded no results: {module_name_hint_key}')
 
                 atdf_module = self.atdf_module(module_name)
-                register_group = atdf_module['register-group']
-                if isinstance(register_group, list):
+                register_groups = atdf_module['register_groups']
+                if len(register_groups) > 1:
                     if register_group_name is None:
                         raise RuntimeError(f'register_group_name was not defined for module {module_name} but register_group contains multiple entries')
-                    register_group = next(rg for rg in register_group if rg['@name'] == register_group_name)
-
-                module_name = register_group['@name']
-
-                module = {
-                    'name': module_name,
-                    'registers': []
-                }
-                modules.append(module)
-
-                atdf_registers = register_group['register']
+                    register_group = next(rg for rg in register_groups if rg['name'] == register_group_name)
+                else:
+                    register_group = register_groups[0]
+                module_name = register_group['name']
                 print(f"Found module: {module_name} (page {row['_metadata']['page']})")
-                # Dig out all the registers related to this module and scan them
-                if not isinstance(atdf_registers, list):
-                    atdf_registers = [atdf_registers]
+
+                atdf_registers = register_group['registers']
                 for atdf_register in atdf_registers:
-                    register_name = atdf_register['@name']
-                    register = {
-                        'name': register_name,
-                        'fields': []
-                    }
-                    module['registers'].append(register)
+                    print(atdf_register, atdf_registers)
+                    register_name = atdf_register['name']
+
+                    # TODO add register extra description?
+
                     #print(atdf_register)
-                    atdf_bitfields = atdf_register.get('bitfield')
-                    if atdf_bitfields and not isinstance(atdf_bitfields, list):
-                        atdf_bitfields = [atdf_bitfields]
+                    atdf_bitfields = atdf_register.get('bitfields')
                     if atdf_bitfields:
                         self.scan_register(index + 1, register_name, atdf_bitfields)
-
-                # Dig out all the bitfields related to this register and scan em
-                continue
-
-            table = self.read_table(index)
-            if table:
-                #print("Found table:", table)
-                skip = len(table) - 1

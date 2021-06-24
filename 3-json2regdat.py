@@ -4,6 +4,7 @@ import re
 
 from parsers.ATtiny814 import ATtiny814Parser
 
+
 def process_file(args):
     input_filename = args.input
     input_atdf_filename = args.atdf
@@ -14,7 +15,11 @@ def process_file(args):
     with open(input_atdf_filename, 'r') as f:
         atdf = json.load(f)
     parser = ATtiny814Parser(atdf, data)
+
     parser.process()
+    modules = parser.output
+    with open(output_filename, 'w') as f:
+        json.dump(modules, f, indent=2)
 
 
 if __name__ == '__main__':
