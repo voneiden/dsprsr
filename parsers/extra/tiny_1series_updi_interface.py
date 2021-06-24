@@ -2,6 +2,7 @@
 This UPDI interface is not documented in the atdef. Hand defined here from ATtiny814 datasheet
 """
 UPDI_INTERFACE = {
+    "id": "UPDI",
     "caption": "Unified Program and Debug Interface",
     "name": "UPDI",
     "register_groups": [

@@ -63,6 +63,7 @@ class BaseParser:
             'name': Value('@name'),
             'rw': Value('@rw'),
             'values_ref': Value('@values', default=None),
+            'description': Value('--undefined--', default=None)  # To be filled from PDF datasheet
         })
 
         register_schema = Schema({
