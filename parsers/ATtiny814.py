@@ -41,10 +41,15 @@ class ATtiny814Parser(BaseParser):
     def scan_field_description(self, index):
         description = []
         section_signature = ((re_section,),)
-
         while not self.match_signature_definition(index, section_signature) and not self.match_signature_definition(index, self.bitfield_signature):
-            # TODO end of page
             row = self.datasheet_json[index]
+            rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
+
+            if rows_left < 4:
+                index += rows_left
+                print("Skipping straight to next page")
+                continue
+
             table = self.read_table(index)
             if table:
                 description.append(markdown_table(table))
@@ -53,15 +58,18 @@ class ATtiny814Parser(BaseParser):
             else:
                 description.append(" ".join(row['cols']))
 
-            if row['_metadata']['row_i'] < row['_metadata']['row_t'] - 4:
-                index += 1
+            # TODO support for variable page end lengths
+            rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
+            if rows_left < 5:
+                index += rows_left
             else:
-                index += 4
+                index += 1
+
         #print("D)", self.datasheet_json[index])
         #print("M1)", self.match_signature_definition(index, section_signature))
         #print("M2)", self.match_signature_definition(index, bitfield_signature))
         description = "\n".join(description)
-        print("---->", description)
+        #print("---->", description)
         return description
 
     def scan_field(self, index, field_name, field_mask):
@@ -108,7 +116,7 @@ class ATtiny814Parser(BaseParser):
             return fields
         print(f"* Found register {register_name} at index", index)
         for atdf_bitfield in atdf_bitfields:
-            print("ATDFBITFIELD", atdf_bitfield, "err", atdf_bitfields)
+            #print("ATDFBITFIELD", atdf_bitfield, "err", atdf_bitfields)
             atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
 
     def process(self):
@@ -150,7 +158,7 @@ class ATtiny814Parser(BaseParser):
 
                 atdf_registers = register_group['registers']
                 for atdf_register in atdf_registers:
-                    print(atdf_register, atdf_registers)
+                    #print(atdf_register, atdf_registers)
                     register_name = atdf_register['name']
 
                     # TODO add register extra description?
