@@ -14,10 +14,10 @@ class ATtiny814Parser(BaseParser):
         ('Value', '**'),
         ('ASYNCUSERn', 'User Multiplexer', 'Description')
     ]
-    module_signature = ((re_section, re.compile('Register Summary(?:$|[^.])')),)
+    module_signature = ((re_section, re.compile('Register Summary.*')),)
 
     # RTC is a black sheep
-    module_signature_alt = ((re.compile(re_section_raw + r'\s+Register Summary(?:$|[^.]+$)'),),)
+    module_signature_alt = ((re.compile(re_section_raw + r'\s+Register Summary.*'),),)
 
     module_name_map = {'Memories': 'FUSE', 'AVR®': 'CPU', 'Peripherals': 'SYSCFG'}
     module_name_hint_map = {
@@ -26,6 +26,18 @@ class ATtiny814Parser(BaseParser):
         'PORT.VPORTx': ('VPORT', 'VPORT'),
         'TCA.Normal Mode': ('TCA', 'TCA_SINGLE'),
         'TCA.Split Mode': ('TCA', 'TCA_SPLIT'),
+        'FUSE.GPIOR': ('FUSE', 'GPIO'),  # ATTiny202
+        'AVR.CPU': ('CPU', 'CPU'),  # ATTiny202
+        'Nonvolatile.NVMCTRL': ('NVMCTRL', 'NVMCTRL'),  # ATTiny202<
+        'Clock.CLKCTRL': ('CLKCTRL', 'CLKCTRL'),  # ATTiny202
+        'Sleep.SLPCTRL': ('SLPCTRL', 'SLPCTRL'),  # ATTiny202
+        'Reset.RSTCTRL': ('RSTCTRL', 'RSTCTRL'),  # ATTiny202
+        'CPU.CPUINT': ('CPUINT', 'CPUINT'),  # ATTiny202
+        'Event.EVSYS': ('EVSYS', 'EVSYS'),  # ATTiny202
+        'Port.PORTMUX': ('PORTMUX', 'PORTMUX'),  # ATTiny202
+        'I/O.PORT': ('PORT', 'PORT'),  # ATTiny202
+        'I/O.VPORT': ('VPORT', 'VPORT'),  # ATTiny202
+        'Brown-Out.BOD': ('BOD', 'BOD'),  # ATTiny202
     }
 
     register_name_map = {
@@ -169,13 +181,17 @@ class ATtiny814Parser(BaseParser):
 
     def process(self):
         skip = 0
-        modules = []
+        start_page = 12
+
         for index, row in enumerate(self.datasheet_json):
             if skip > 0:
                 skip -= 1
                 continue
+            if row['_metadata']['page'] < start_page:
+                continue
             if self.match_signature_definition(index, self.module_signature) or \
                     self.match_signature_definition(index, self.module_signature_alt):
+                print("MATCH ROW", row)
                 # Determine module - now this is a hack :-D
                 page_header_offset = row['_metadata']['row_t'] - row['_metadata']['row_i'] - 2
                 page_title = self.datasheet_json[index + page_header_offset]['cols'][0]
