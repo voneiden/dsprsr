@@ -1,4 +1,5 @@
 import re
+from typing import Callable
 
 from parsers.Base import BaseParser
 from parsers.extra.tiny_1series_updi_interface import UPDI_INTERFACE
@@ -29,7 +30,9 @@ class ATtiny814Parser(BaseParser):
     }
 
     register_signature = (('Name:', '*'), ('Offset:', '*'))
+    property_signature = (('Property:', '*'),)
     bitfield_signature = ((re.compile(r'Bit.*-.*'), '**'),)
+    bittable_signature = (('Bit', '**'),)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,39 +41,66 @@ class ATtiny814Parser(BaseParser):
     def is_valid_table_row(self, index):
         return not self.match_signature_definition(index, self.bitfield_signature)
 
-    def scan_field_description(self, index):
-        description = []
-        section_signature = ((re_section,),)
-        while not self.match_signature_definition(index, section_signature) and not self.match_signature_definition(index, self.bitfield_signature):
-            row = self.datasheet_json[index]
-            rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
-
-            if rows_left < 4:
-                index += rows_left
-                print("Skipping straight to next page")
-                continue
-
-            table = self.read_table(index)
-            if table:
-                description.append(markdown_table(table))
-                index += len(table) - 1
-                row = self.datasheet_json[index]
-            else:
-                description.append(" ".join(row['cols']))
-
-            # TODO support for variable page end lengths
-            rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
-            if rows_left < 5:
-                index += rows_left
-            else:
+    def scan_text(self, index, end_condition: Callable, start_condition: Callable = None, start_after_condition=False):
+        text = []
+        if start_condition:
+            try:
+                while not start_condition(index):
+                    index += 1
+            except IndexError:
+                print("! Failed to read text (start EOF)")
+                return []
+            if start_after_condition:
                 index += 1
 
-        #print("D)", self.datasheet_json[index])
-        #print("M1)", self.match_signature_definition(index, section_signature))
-        #print("M2)", self.match_signature_definition(index, bitfield_signature))
-        description = "\n".join(description)
-        #print("---->", description)
-        return description
+        try:
+            while not end_condition(index):
+                row = self.datasheet_json[index]
+                rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
+
+                if rows_left < 4:
+                    index += rows_left
+                    print("Skipping straight to next page")
+                    continue
+
+                table = self.read_table(index)
+                if table:
+                    text.append(markdown_table(table))
+                    index += len(table) - 1
+                    row = self.datasheet_json[index]
+                else:
+                    text.append(" ".join(row['cols']))
+
+                # TODO support for variable page end lengths
+                rows_left = row['_metadata']['row_t'] - row['_metadata']['row_i']
+                if rows_left < 5:
+                    index += rows_left
+                else:
+                    index += 1
+        except IndexError:
+            print("! Failed to read text (end EOF)")
+            return []
+        return "\n".join(text)
+
+    def field_description_end_condition(self, index):
+        section_signature = ((re_section,),)
+        return self.match_signature_definition(index, section_signature) or self.match_signature_definition(index, self.bitfield_signature)
+
+    def scan_field_description(self, index):
+        return self.scan_text(index, self.field_description_end_condition)
+
+    def registry_description_start_condition(self, index):
+        return self.match_signature_definition(index, self.property_signature)
+
+    def registry_description_end_condition(self, index):
+        return self.match_signature_definition(index, self.bittable_signature)
+
+    def scan_registry_description(self, index):
+        return self.scan_text(index,
+                              self.registry_description_end_condition,
+                              start_condition=self.registry_description_start_condition,
+                              start_after_condition=True
+                              )
 
     def scan_field(self, index, field_name, field_mask):
         field_description = None
@@ -100,8 +130,10 @@ class ATtiny814Parser(BaseParser):
         field_description = self.scan_field_description(index+1)
         return field_description
 
-    def scan_register(self, index, register_name, atdf_bitfields):
-        fields = []
+    def scan_register(self, index, atdf_register):
+        register_name = atdf_register['name']
+        atdf_bitfields = atdf_register.get('bitfields')
+
         if register_name in self.register_name_map:
             register_name = self.register_name_map[register_name]
         re_register_name = re.compile(re.sub(*re_register_name_wildcard, register_name))
@@ -111,13 +143,13 @@ class ATtiny814Parser(BaseParser):
             while not self.match_signature_definition(index, register_signature):
                 index += 1
         except IndexError:
-            print("WHOA, undocumented feature!", register_name)
-            #TODO
-            return fields
+            print("WHOA, undocumented feature!", register_name)  # TODO
+
         print(f"* Found register {register_name} at index", index)
-        for atdf_bitfield in atdf_bitfields:
-            #print("ATDFBITFIELD", atdf_bitfield, "err", atdf_bitfields)
-            atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
+        atdf_register['description'] = self.scan_registry_description(index) or None
+        if atdf_bitfields:
+            for atdf_bitfield in atdf_bitfields:
+                atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
 
     def process(self):
         skip = 0
@@ -158,12 +190,4 @@ class ATtiny814Parser(BaseParser):
 
                 atdf_registers = register_group['registers']
                 for atdf_register in atdf_registers:
-                    #print(atdf_register, atdf_registers)
-                    register_name = atdf_register['name']
-
-                    # TODO add register extra description?
-
-                    #print(atdf_register)
-                    atdf_bitfields = atdf_register.get('bitfields')
-                    if atdf_bitfields:
-                        self.scan_register(index + 1, register_name, atdf_bitfields)
+                    self.scan_register(index + 1, atdf_register)
