@@ -5,7 +5,7 @@ from parsers.Base import BaseParser
 from parsers.extra.tiny_1series_updi_interface import UPDI_INTERFACE
 from utils.markdown_table import markdown_table
 
-re_section_raw = r'^\d+\.(\d+\.)*'
+re_section_raw = r'^\d+((\.\d+)+|\.)'
 re_section = re.compile(re_section_raw)
 re_register_name_wildcard = (re.compile(r'([A-Za-z_]+)(\d|10)($|[A-Za-z_]+)'), r'\1[\2nx]\3')
 
@@ -15,6 +15,10 @@ class ATtiny814Parser(BaseParser):
         ('ASYNCUSERn', 'User Multiplexer', 'Description')
     ]
     module_signature = ((re_section, re.compile('Register Summary(?:$|[^.])')),)
+
+    # RTC is a black sheep
+    module_signature_alt = ((re.compile(re_section_raw + r'\s+Register Summary(?:$|[^.]+$)'),),)
+
     module_name_map = {'Memories': 'FUSE', 'AVR®': 'CPU', 'Peripherals': 'SYSCFG'}
     module_name_hint_map = {
         'ADC.ADCn': ('ADC', 'ADC'),
@@ -144,12 +148,24 @@ class ATtiny814Parser(BaseParser):
                 index += 1
         except IndexError:
             print("WHOA, undocumented feature!", register_name)  # TODO
+            atdf_register['description'] = 'Undocumented'
+            return
 
         print(f"* Found register {register_name} at index", index)
         atdf_register['description'] = self.scan_registry_description(index) or None
         if atdf_bitfields:
             for atdf_bitfield in atdf_bitfields:
                 atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
+
+    def atdf_modules(self, module_name):
+        if module_name == "FUSE":  # AKA Memories
+            return [self.atdf_module("GPIO"),
+                    self.atdf_module("FUSE"),
+                    self.atdf_module("LOCKBIT"),
+                    self.atdf_module("SIGROW"),
+                    self.atdf_module("USERROW"),  # Userrow is not described as a register in the DS
+                    ]
+        return [self.atdf_module(module_name)]
 
     def process(self):
         skip = 0
@@ -158,18 +174,18 @@ class ATtiny814Parser(BaseParser):
             if skip > 0:
                 skip -= 1
                 continue
-            if self.match_signature_definition(index, self.module_signature):
+            if self.match_signature_definition(index, self.module_signature) or \
+                    self.match_signature_definition(index, self.module_signature_alt):
                 # Determine module - now this is a hack :-D
                 page_header_offset = row['_metadata']['row_t'] - row['_metadata']['row_i'] - 2
                 page_title = self.datasheet_json[index + page_header_offset]['cols'][0]
                 module_name = page_title.split(' ')[0]
                 if module_name in self.module_name_map:
                     module_name = self.module_name_map[module_name]
-
                 # Sometimes we can't rely on the page header title
                 register_group_name = None
-                module_name_hint = row['cols'][1]
-                if ' - ' in module_name_hint:
+                module_name_hint = row['cols'][1] if len(row['cols']) > 1 else None
+                if module_name_hint and ' - ' in module_name_hint:
                     module_name_hint = module_name_hint.split(' - ')[1]
                     if module_name_hint != module_name:
                         module_name_hint_key = f'{module_name}.{module_name_hint}'
@@ -177,17 +193,19 @@ class ATtiny814Parser(BaseParser):
                         if not module_name:
                             raise RuntimeError(f'Module name hint key yielded no results: {module_name_hint_key}')
 
-                atdf_module = self.atdf_module(module_name)
-                register_groups = atdf_module['register_groups']
-                if len(register_groups) > 1:
-                    if register_group_name is None:
-                        raise RuntimeError(f'register_group_name was not defined for module {module_name} but register_group contains multiple entries')
-                    register_group = next(rg for rg in register_groups if rg['name'] == register_group_name)
-                else:
-                    register_group = register_groups[0]
-                module_name = register_group['name']
-                print(f"Found module: {module_name} (page {row['_metadata']['page']})")
+                # Datasheet section "Memories" is tricky, it contains registries from multiple modules
+                atdf_modules = self.atdf_modules(module_name)
+                for atdf_module in atdf_modules:
+                    register_groups = atdf_module['register_groups']
+                    if len(register_groups) > 1:
+                        if register_group_name is None:
+                            raise RuntimeError(f'register_group_name was not defined for module {module_name} but register_group contains multiple entries')
+                        register_group = next(rg for rg in register_groups if rg['name'] == register_group_name)
+                    else:
+                        register_group = register_groups[0]
+                    module_name = register_group['name']
+                    print(f"Found module: {module_name} (page {row['_metadata']['page']})")
 
-                atdf_registers = register_group['registers']
-                for atdf_register in atdf_registers:
-                    self.scan_register(index + 1, atdf_register)
+                    atdf_registers = register_group['registers']
+                    for atdf_register in atdf_registers:
+                        self.scan_register(index + 1, atdf_register)
