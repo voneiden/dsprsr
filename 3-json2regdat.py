@@ -15,8 +15,8 @@ def process_file(args):
 
     with open(input_atdf_filename, 'r') as f:
         atdf = json.load(f)
-    #parser = ATtiny814Parser(atdf, data)
-    parser = ATtiny202Parser(atdf, data)
+    parser = ATtiny814Parser(atdf, data)
+    #parser = ATtiny202Parser(atdf, data)
     parser.process()
     modules = parser.output
     with open(output_filename, 'w') as f:

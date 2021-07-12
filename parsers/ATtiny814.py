@@ -143,8 +143,9 @@ class ATtiny814Parser(BaseParser):
             return None
 
         print(f" - Found bitfield {field_name} at index {index}")
+        caption = self.datasheet_json[index]['cols'][1]
         field_description = self.scan_field_description(index+1)
-        return field_description
+        return caption, field_description
 
     def scan_register(self, index, atdf_register):
         register_name = atdf_register['name']
@@ -165,9 +166,27 @@ class ATtiny814Parser(BaseParser):
 
         print(f"* Found register {register_name} at index", index)
         atdf_register['description'] = self.scan_registry_description(index) or None
+        # ATDF is missing sometimes bitfields for fields that have only one field? Guess from the size
+        if not atdf_bitfields and atdf_register['size'] >= 1:
+            # Manually generate bitfields with best guess :E
+            atdf_bitfields = [
+                {
+                    'name': register_name,
+                    'caption': None,
+                    'mask': hex(0xff << (8*i)),
+                    'rw': 'unknown',  # TODO ? This can in theory be parsed
+                    'values_ref': None
+
+                } for i in range(atdf_register['size'])
+            ]
+            atdf_register['bitfields'] = atdf_bitfields
+
         if atdf_bitfields:
             for atdf_bitfield in atdf_bitfields:
-                atdf_bitfield['description'] = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
+                caption, description = self.scan_field(index, atdf_bitfield['name'], atdf_bitfield['mask'])
+                atdf_bitfield['description'] = description
+                if not atdf_bitfield['caption']:
+                    atdf_bitfield['caption'] = caption
 
     def atdf_modules(self, module_name):
         if module_name == "FUSE":  # AKA Memories
