@@ -1,3 +1,6 @@
+atdf/*.atdf
+atdf/json/*.json
+datasheets/*.pdf
 .idea
 data
 venv
